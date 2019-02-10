@@ -49,15 +49,35 @@ public final class BaselineErrorProne implements Plugin<Project> {
                     ErrorPronePlugin.CONFIGURATION_NAME,
                     "com.palantir.baseline:baseline-error-prone:" + version);
 
-            project.getTasks().withType(JavaCompile.class).configureEach(javaCompile ->
-                    ((ExtensionAware) javaCompile.getOptions()).getExtensions()
-                            .configure(ErrorProneOptions.class, errorProneOptions -> {
-                                errorProneOptions.setEnabled(true);
-                                errorProneOptions.setDisableWarningsInGeneratedCode(true);
-                                errorProneOptions.check("EqualsHashCode", CheckSeverity.ERROR);
-                                errorProneOptions.check("EqualsIncompatibleType", CheckSeverity.ERROR);
-                                errorProneOptions.check("StreamResourceLeak", CheckSeverity.ERROR);
-                            }));
+            project.getTasks().withType(JavaCompile.class).configureEach(javaCompile -> {
+                ((ExtensionAware) javaCompile.getOptions()).getExtensions()
+                        .configure(ErrorProneOptions.class, errorProneOptions -> {
+                            errorProneOptions.setEnabled(true);
+                            errorProneOptions.setDisableWarningsInGeneratedCode(true);
+                            errorProneOptions.check("EqualsHashCode", CheckSeverity.ERROR);
+                            errorProneOptions.check("EqualsIncompatibleType", CheckSeverity.ERROR);
+                            errorProneOptions.check("StreamResourceLeak", CheckSeverity.ERROR);
+
+                            // TODO(dfox): set up $PATCH as an @Input of the task so it re-runs properly
+                            String patch = System.getenv("PATCH");
+                            if (patch != null) {
+                                List<String> args = errorProneOptions.getErrorproneArgs();
+                                args.add("-XepPatchChecks:" + patch);
+                                args.add("-XepPatchLocation:" + project.getRootDir());
+                                File patchFile = new File(project.getRootDir(), "error-prone.patch");
+
+                                javaCompile.doLast(t -> {
+                                    if (patchFile.exists()) {
+                                        project.exec(exec -> {
+                                            exec.setWorkingDir(project.getRootDir());
+                                            exec.commandLine("patch", "-p0", "--unified", "--input="+patchFile);
+                                        });
+                                        patchFile.delete();
+                                    }
+                                });
+                            }
+                        });
+            });
 
             project.getPluginManager().withPlugin("java-gradle-plugin", appliedPlugin -> {
                 project.getTasks().withType(JavaCompile.class).configureEach(javaCompile ->
